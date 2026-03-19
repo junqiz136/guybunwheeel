@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>丐幫電競轉盤</title>
+  <style>
+    :root {
+      --text: #f8fafc;
+      --border: rgba(255,255,255,0.08);
+      --shadow: 0 18px 50px rgba(0,0,0,0.35);
+      --accent2: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(245,158,11,0.12), transparent 35%),
+        linear-gradient(180deg, #08101d 0%, #111827 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 24px; }
+    .card {
+      background: rgba(17,24,39,0.9);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      padding: 24px;
+      position: relative;
+      min-height: 700px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .pointer {
+      width: 0; height: 0;
+      border-left: 18px solid transparent;
+      border-right: 18px solid transparent;
+      border-top: 42px solid var(--accent2);
+      position: absolute; top: 18px; z-index: 5;
+      filter: drop-shadow(0 6px 10px rgba(0,0,0,0.35));
+    }
+    .wheel-box {
+      position: relative;
+      width: min(78vw, 620px);
+      height: min(78vw, 620px);
+      display: grid;
+      place-items: center;
+    }
+    canvas {
+      width: 100%; height: 100%; border-radius: 50%;
+      background: #0b1220;
+      box-shadow: inset 0 0 0 10px rgba(255,255,255,0.06), 0 20px 40px rgba(0,0,0,0.35);
+    }
+    .center-cap {
+      position: absolute;
+      width: 96px; height: 96px; border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #fde68a, #f59e0b 65%, #b45309 100%);
+      border: 6px solid rgba(255,255,255,0.18);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.35);
+      display: grid; place-items: center; font-weight: 800; color: #3b1d00; z-index: 4;
+      user-select: none;
+    }
+    .controls { margin-top: 22px; display: flex; justify-content: center; }
+    button {
+      border: none; border-radius: 999px; padding: 12px 18px; font-size: 15px; font-weight: 700;
+      cursor: pointer; background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #231200;
+      box-shadow: 0 12px 24px rgba(245,158,11,0.28);
+    }
+    .result {
+      margin-top: 18px; min-height: 64px; width: 100%;
+      border-radius: 18px; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      display: grid; place-items: center; padding: 14px; text-align: center;
+    }
+    .result strong { font-size: 24px; color: #fde68a; }
+    @media (max-width: 700px) {
+      .wrap { padding: 16px; }
+      .card { min-height: auto; padding: 18px; }
+      .center-cap { width: 82px; height: 82px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card">
+      <div class="pointer"></div>
+      <div class="wheel-box">
+        <canvas id="wheelCanvas" width="900" height="900"></canvas>
+        <div class="center-cap">GO</div>
+      </div>
+      <div class="controls">
+        <button id="spinBtn">開始抽獎</button>
+      </div>
+      <div class="result" id="resultBox">按下 <strong>開始抽獎</strong> 來轉動轉盤</div>
+    </section>
+  </div>
+  <script>
+    const config = {
+  "title": "丐幫電競轉盤【隨機哈夫幣單】 1000$",
+  "prizes": [
+    {
+      "name": "1400",
+      "weight": 5
+    },
+    {
+      "name": "1600",
+      "weight": 5
+    },
+    {
+      "name": "1800",
+      "weight": 5
+    },
+    {
+      "name": "2000",
+      "weight": 5
+    },
+    {
+      "name": "2200",
+      "weight": 5
+    },
+    {
+      "name": "2400",
+      "weight": 5
+    }
+  ]
+};
+    const colors = ['#ef4444','#f97316','#f59e0b','#eab308','#22c55e','#06b6d4','#3b82f6','#8b5cf6','#ec4899','#14b8a6'];
+    const state = { rotation: 0, spinning: false, animationId: null };
+    const canvas = document.getElementById('wheelCanvas');
+    const ctx = canvas.getContext('2d');
+    const spinBtn = document.getElementById('spinBtn');
+    const resultBox = document.getElementById('resultBox');
+    document.title = '丐幫電競轉盤';
+
+    function getTotalWeight(prizes) { return prizes.reduce((sum, prize) => sum + prize.weight, 0); }
+    function drawWrappedText(ctx, text, x, y, maxWidth, lineHeight) {
+      const chars = [...text]; const lines = []; let current = '';
+      for (const ch of chars) {
+        const test = current + ch;
+        if (ctx.measureText(test).width > maxWidth && current) { lines.push(current); current = ch; }
+        else current = test;
+      }
+      if (current) lines.push(current);
+      const shown = lines.slice(0, 3);
+      const offsetY = -((shown.length - 1) * lineHeight) / 2;
+      shown.forEach((line, i) => ctx.fillText(line, x, y + offsetY + i * lineHeight));
+    }
+    function drawWheel() {
+      const prizes = config.prizes;
+      const totalWeight = getTotalWeight(prizes);
+      const cx = canvas.width / 2, cy = canvas.height / 2, radius = 390;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(state.rotation);
+      let startAngle = -Math.PI / 2;
+      prizes.forEach((prize, index) => {
+        const arc = (prize.weight / totalWeight) * Math.PI * 2;
+        const endAngle = startAngle + arc;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, radius, startAngle, endAngle); ctx.closePath();
+        ctx.fillStyle = colors[index % colors.length]; ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 4; ctx.stroke();
+        const midAngle = startAngle + arc / 2;
+        ctx.save(); ctx.rotate(midAngle); ctx.translate(radius * 0.66, 0); ctx.rotate(Math.PI / 2);
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 30px Noto Sans TC, Microsoft JhengHei, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        drawWrappedText(ctx, prize.name, 0, 0, 180, 34);
+        ctx.restore();
+        startAngle = endAngle;
+      });
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(cx, cy, radius + 8, 0, Math.PI * 2);
+      ctx.lineWidth = 12; ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.stroke();
+    }
+    function pickPrizeByWeight(prizes) {
+      const totalWeight = getTotalWeight(prizes);
+      let random = Math.random() * totalWeight;
+      for (let i = 0; i < prizes.length; i++) { random -= prizes[i].weight; if (random <= 0) return i; }
+      return prizes.length - 1;
+    }
+    function getPrizeCenterAngle(prizes, targetIndex) {
+      const totalWeight = getTotalWeight(prizes); let acc = 0;
+      for (let i = 0; i < prizes.length; i++) {
+        const arc = (prizes[i].weight / totalWeight) * Math.PI * 2;
+        if (i === targetIndex) return -Math.PI / 2 + acc + arc / 2;
+        acc += arc;
+      }
+      return -Math.PI / 2;
+    }
+    function normalizeAngle(angle) { const full = Math.PI * 2; return ((angle % full) + full) % full; }
+    function escapeHtml(str) {
+      return str.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+    }
+    function spin() {
+      if (state.spinning) return;
+      const prizes = config.prizes;
+      state.spinning = true; spinBtn.disabled = true; resultBox.innerHTML = '轉盤旋轉中...';
+      const chosenIndex = pickPrizeByWeight(prizes);
+      const chosenPrize = prizes[chosenIndex];
+      const centerAngle = getPrizeCenterAngle(prizes, chosenIndex);
+      const current = normalizeAngle(state.rotation);
+      const targetAtTop = Math.PI * 1.5;
+      let delta = targetAtTop - centerAngle - current;
+      delta = normalizeAngle(delta);
+      const extraRounds = (5 + Math.floor(Math.random() * 3)) * Math.PI * 2;
+      const finalRotation = state.rotation + extraRounds + delta;
+      const startRotation = state.rotation;
+      const duration = 5200;
+      const startTime = performance.now();
+      function animate(now) {
+        const elapsed = now - startTime;
+        const t = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - t, 4);
+        state.rotation = startRotation + (finalRotation - startRotation) * eased;
+        drawWheel();
+        if (t < 1) state.animationId = requestAnimationFrame(animate);
+        else {
+          state.rotation = normalizeAngle(finalRotation);
+          drawWheel();
+          state.spinning = false;
+          spinBtn.disabled = false;
+          resultBox.innerHTML = '抽中：<strong>' + escapeHtml(chosenPrize.name) + '</strong>';
+        }
+      }
+      cancelAnimationFrame(state.animationId);
+      state.animationId = requestAnimationFrame(animate);
+    }
+    spinBtn.addEventListener('click', spin);
+    drawWheel();
+  </script>
+</body>
+</html>
